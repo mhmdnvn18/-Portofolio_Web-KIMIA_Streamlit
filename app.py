@@ -127,35 +127,38 @@ ELEMENTS_DATA = {
 }
 
 # =================================================================================
-# FUNGSI KALKULATOR MASSA MOLAR
+# FUNGSI-FUNGSI PERHITUNGAN
 # =================================================================================
 
-def calculate_molar_mass(formula):
-    """
-    Menghitung massa molar dari sebuah rumus kimia.
-    Mendukung rumus dengan tanda kurung.
-    Contoh: H2O, C6H12O6, Mg(OH)2
-    """
+def parse_formula(formula):
+    """Mem-parsing rumus kimia dan mengembalikan dictionary jumlah atom."""
     tokens = re.findall(r'([A-Z][a-z]?)(\d*)|(\()|(\))(\d*)', formula)
-    stack = [0]
+    stack = [{}]
     for symbol, count, open_bracket, close_bracket, multiplier in tokens:
         if symbol:
             if symbol not in ELEMENTS_DATA:
                 raise ValueError(f"Unsur tidak dikenal: {symbol}")
-            atomic_mass = ELEMENTS_DATA[symbol]['mass']
             num_atoms = int(count) if count else 1
-            stack[-1] += atomic_mass * num_atoms
+            stack[-1][symbol] = stack[-1].get(symbol, 0) + num_atoms
         elif open_bracket:
-            stack.append(0)
+            stack.append({})
         elif close_bracket:
             if len(stack) < 2:
                 raise ValueError("Tanda kurung tidak cocok dalam rumus.")
-            mass_in_bracket = stack.pop()
+            top = stack.pop()
             num_groups = int(multiplier) if multiplier else 1
-            stack[-1] += mass_in_bracket * num_groups
+            for atom, num in top.items():
+                stack[-1][atom] = stack[-1].get(atom, 0) + num * num_groups
     if len(stack) != 1:
         raise ValueError("Tanda kurung tidak cocok dalam rumus.")
     return stack[0]
+
+def calculate_molar_mass(atom_counts):
+    """Menghitung massa molar dari dictionary jumlah atom."""
+    total_mass = 0
+    for atom, count in atom_counts.items():
+        total_mass += ELEMENTS_DATA[atom]['mass'] * count
+    return total_mass
 
 # =================================================================================
 # FUNGSI UNTUK TAMPILAN (UI)
@@ -297,8 +300,7 @@ def periodic_table_view():
             if cell_content:
                 symbol, data = cell_content
                 color = get_category_color(data['category'])
-                # Menggunakan st.query_params untuk navigasi tanpa reload penuh
-                html += f'<a href="?page=Beranda&element={symbol}" class="element-cell" style="grid-column: {group}; grid-row: {period}; background-color: {color};">'
+                html += f'<a href="?page=Tabel+Periodik&element={symbol}" class="element-cell" style="grid-column: {group}; grid-row: {period}; background-color: {color};">'
                 html += f'<div class="element-number">{data["number"]}</div>'
                 html += f'<div class="element-symbol">{symbol}</div>'
                 html += f'<div class="element-name">{data["name"]}</div>'
@@ -341,67 +343,103 @@ def element_details_view(symbol):
         st.info(f"**Kategori:** {category_name}")
         
         st.write("---")
-        # Tombol kembali sekarang mengarahkan ke URL Beranda tanpa parameter elemen
         if st.button("Kembali ke Tabel Periodik"):
-            st.query_params.page = "Beranda"
-            st.query_params.clear() # Membersihkan parameter 'element'
+            st.query_params.page = "Tabel Periodik"
+            st.query_params.clear() 
             st.rerun()
 
+def display_calculation_breakdown(formula, atom_counts, total_mass):
+    """Membuat expander untuk menampilkan rincian perhitungan."""
+    with st.expander("Lihat Rincian Perhitungan"):
+        st.markdown(f"#### Perhitungan untuk **{formula}**")
+        
+        calculation_steps = []
+        for atom, count in sorted(atom_counts.items()):
+            atomic_mass = ELEMENTS_DATA[atom]['mass']
+            step_total = atomic_mass * count
+            calculation_steps.append(f"- **{count}** atom **{atom}** &times; `{atomic_mass:.4f}` = `{step_total:.4f}`")
+        
+        st.markdown("\n".join(calculation_steps))
+        
+        st.markdown("---")
+        st.markdown(f"**Total Massa Molar** = **`{total_mass:.4f} g/mol`**")
 
 # =================================================================================
 # DEFINISI HALAMAN
 # =================================================================================
 
-def home_page():
+def landing_page():
     """Fungsi untuk merender halaman utama (Beranda)."""
-    st.title("🧪 Tabel Periodik Interaktif & Kalkulator Kimia")
-    st.markdown("Sebuah alat bantu untuk belajar kimia. Klik unsur pada tabel untuk melihat detailnya atau gunakan kalkulator di bawah.")
+    st.title("Selamat Datang di Aplikasi Kimia Interaktif ⚛️")
+    st.markdown("""
+    Aplikasi ini adalah pusat sumber daya Anda untuk menjelajahi dunia kimia yang menakjubkan. Baik Anda seorang siswa yang baru memulai, seorang guru yang mencari alat bantu ajar, atau hanya seorang yang penasaran, Anda akan menemukan alat yang berguna di sini.
 
-    # Memeriksa apakah ada unsur yang dipilih melalui URL
+    **Gunakan navigasi di sebelah kiri untuk memulai:**
+
+    - **Tabel Periodik**: Jelajahi tabel periodik interaktif, klik pada unsur untuk melihat detailnya.
+    - **Kalkulator Kimia**: Hitung massa molar senyawa dengan cepat.
+    - **Informasi Kimia**: Baca pengantar singkat tentang konsep-konsep dasar kimia.
+
+    Selamat belajar dan bereksplorasi!
+    """)
+
+def periodic_table_page():
+    """Fungsi untuk merender halaman Tabel Periodik."""
+    st.title("🧪 Tabel Periodik Interaktif")
+    
     query_params = st.query_params
     selected_element = query_params.get("element")
 
     if selected_element:
         element_details_view(selected_element)
     else:
+        st.markdown("Klik pada sebuah unsur untuk melihat informasi detailnya.")
         periodic_table_view()
-        st.write("---")
-        st.header("🧮 Kalkulator Massa Molar")
-        formula = st.text_input(
-            "Masukkan Rumus Kimia (contoh: H2O, C6H12O6, Mg(OH)2)",
-            key="formula_input"
-        )
-        if st.button("Hitung Massa Molar"):
-            if formula:
-                try:
-                    molar_mass = calculate_molar_mass(formula)
-                    st.success(f"**Massa Molar dari {formula} adalah:** `{molar_mass:.4f} g/mol`")
-                except ValueError as e:
-                    st.error(f"Error: {e}. Periksa kembali rumus Anda.")
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan tak terduga: {e}")
-            else:
-                st.warning("Silakan masukkan rumus kimia terlebih dahulu.")
+
+def calculator_page():
+    """Fungsi untuk merender halaman Kalkulator Kimia."""
+    st.title("🧮 Kalkulator Massa Molar")
+    st.markdown("Masukkan rumus kimia dari sebuah senyawa untuk menghitung massa molarnya.")
+    
+    formula = st.text_input(
+        "Masukkan Rumus Kimia (contoh: H2O, C6H12O6, Mg(OH)2)",
+        key="formula_input"
+    )
+    if st.button("Hitung Massa Molar"):
+        if formula:
+            try:
+                atom_counts = parse_formula(formula)
+                total_mass = calculate_molar_mass(atom_counts)
+                
+                st.success(f"**Massa Molar dari {formula} adalah:** `{total_mass:.4f} g/mol`")
+                display_calculation_breakdown(formula, atom_counts, total_mass)
+
+            except ValueError as e:
+                st.error(f"Error: {e}. Periksa kembali rumus Anda.")
+            except Exception as e:
+                st.error(f"Terjadi kesalahan tak terduga: {e}")
+        else:
+            st.warning("Silakan masukkan rumus kimia terlebih dahulu.")
 
 def about_page():
-    """Fungsi untuk merender halaman 'Tentang'."""
-    st.title("Tentang Aplikasi Ini")
+    """Fungsi untuk merender halaman 'Informasi Kimia'."""
+    st.title("📖 Informasi Dasar Kimia")
     st.markdown("""
-    Aplikasi ini dirancang sebagai alat bantu belajar interaktif untuk siswa, guru, dan siapa saja yang tertarik dengan kimia.
+    Kimia adalah studi tentang materi, sifat-sifatnya, bagaimana dan mengapa zat bergabung atau terpisah untuk membentuk zat lain, dan bagaimana zat berinteraksi dengan energi.
 
-    ### Fitur Utama
-    - **Tabel Periodik Interaktif**: Visualisasikan seluruh unsur kimia. Klik pada setiap unsur untuk mendapatkan informasi mendetail seperti nomor atom, massa atom, golongan, dan periode. Unsur-unsur diberi kode warna berdasarkan kategori kimianya untuk memudahkan identifikasi.
-    - **Kalkulator Massa Molar**: Hitung massa molar (berat molekul) dari senyawa kimia apa pun dengan mudah. Cukup masukkan rumus kimianya (misalnya, `H2O` atau `C6H12O6`), dan kalkulator akan memberikan hasilnya secara instan.
-    - **Desain Responsif & Modern**: Dibangun dengan tema gelap yang nyaman di mata dan dapat diakses dari berbagai perangkat.
+    ### Konsep Kunci
+    - **Atom**: Unit dasar materi yang terdiri dari inti pusat (proton dan neutron) yang dikelilingi oleh awan elektron. Setiap unsur kimia dicirikan oleh jumlah proton di dalam atomnya.
+    - **Unsur**: Zat murni yang hanya terdiri dari atom-atom yang semuanya memiliki jumlah proton yang sama di dalam inti atomnya. Unsur-unsur diatur dalam Tabel Periodik.
+    - **Molekul**: Partikel yang terdiri dari dua atau lebih atom yang terikat secara kimia. Molekul bisa terdiri dari atom unsur yang sama (seperti O₂) atau atom dari unsur yang berbeda (seperti H₂O).
+    - **Senyawa**: Zat yang terbentuk ketika dua atau lebih unsur kimia yang berbeda terikat secara kimia dalam perbandingan tetap. Contohnya adalah air (H₂O) dan garam dapur (NaCl).
+    - **Massa Molar**: Massa dari satu mol suatu zat. Ini adalah properti fisik yang penting dalam stoikiometri dan perhitungan kimia lainnya. Satuannya biasanya gram per mol (g/mol).
 
-    ### Teknologi yang Digunakan
-    - **Streamlit**: Framework Python untuk membangun aplikasi web data dengan cepat dan mudah.
-    - **Python**: Bahasa pemrograman yang menjadi dasar dari semua logika aplikasi.
-
-    ### Sumber Data
-    Data mengenai unsur-unsur kimia (nomor atom, massa, dll.) diambil dari sumber-sumber terpercaya seperti **IUPAC** dan **Wikipedia**.
-
-    Semoga aplikasi ini bermanfaat!
+    ### Tentang Aplikasi Ini
+    Aplikasi ini dibuat untuk menyediakan alat yang mudah diakses untuk:
+    1.  **Mempelajari Unsur**: Dengan tabel periodik yang interaktif.
+    2.  **Melakukan Perhitungan**: Dengan kalkulator massa molar yang praktis.
+    
+    Semoga dapat membantu perjalanan belajar kimia Anda!
     """)
 
 # =================================================================================
@@ -409,31 +447,40 @@ def about_page():
 # =================================================================================
 
 def main():
-    st.set_page_config(page_title="Tabel Periodik & Kalkulator Kimia", layout="wide")
+    st.set_page_config(page_title="Aplikasi Kimia Interaktif", layout="wide")
 
     # Navigasi di Sidebar
     st.sidebar.title("Navigasi")
-    # Menggunakan st.query_params untuk menjaga state halaman
-    if 'page' not in st.query_params:
+    
+    pages = ["Beranda", "Tabel Periodik", "Kalkulator Kimia", "Informasi Kimia"]
+    
+    if 'page' not in st.query_params or st.query_params.page not in pages:
         st.query_params.page = "Beranda"
+
+    default_index = pages.index(st.query_params.page)
 
     page = st.sidebar.radio(
         "Pilih Halaman",
-        ["Beranda", "Tentang"],
+        pages,
         key="page_selector",
-        index=["Beranda", "Tentang"].index(st.query_params.page)
+        index=default_index
     )
     
-    # Update query param saat radio button diubah
     if st.query_params.page != page:
         st.query_params.page = page
-        st.query_params.clear() # Hapus parameter lain seperti 'element' saat pindah halaman
+        keys_to_clear = [k for k in st.query_params if k != 'page']
+        for k in keys_to_clear:
+            del st.query_params[k]
         st.rerun()
 
     # Routing Halaman
     if page == "Beranda":
-        home_page()
-    elif page == "Tentang":
+        landing_page()
+    elif page == "Tabel Periodik":
+        periodic_table_page()
+    elif page == "Kalkulator Kimia":
+        calculator_page()
+    elif page == "Informasi Kimia":
         about_page()
 
 if __name__ == "__main__":
